@@ -1,1057 +1,662 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import folium
 from streamlit_folium import st_folium
-import numpy as np
+from datetime import datetime, timedelta
 import requests
-from datetime import datetime, date
 import json
+from branca.colormap import linear
 
-# ─────────────────────────────────────────────
-# PAGE CONFIG
-# ─────────────────────────────────────────────
+# Configuração da página
 st.set_page_config(
-    page_title="Sismologia — Patagônia",
+    page_title="Sismologia da Patagônia | M7.4 Drake Passage",
     page_icon="🌍",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-# ─────────────────────────────────────────────
-# CUSTOM CSS
-# ─────────────────────────────────────────────
+# Estilo CSS personalizado
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-
-.main-header {
-    background: linear-gradient(135deg, #1a0a00 0%, #3d1a00 40%, #6b2800 100%);
-    color: white;
-    padding: 3rem 2rem 2rem 2rem;
-    border-radius: 0 0 1.5rem 1.5rem;
-    margin: -1rem -1rem 2rem -1rem;
-}
-.main-header h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 0.4rem; letter-spacing: -0.02em; }
-.main-header p { color: #f4a96a; font-size: 1rem; margin: 0; }
-.tag-pill {
-    display: inline-block; background: rgba(255,255,255,0.12);
-    color: #ffe5cc; border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 20px; padding: 4px 14px;
-    font-size: 0.75rem; margin: 4px 4px 0 0; font-weight: 500;
-}
-
-/* CARD DE DESTAQUE — 02/05/2025 */
-.hero-card {
-    background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 60%, #b91c1c 100%);
-    border: 2px solid #fca5a5;
-    border-radius: 1.2rem;
-    padding: 1.8rem 2rem;
-    color: white;
-    margin-bottom: 1.5rem;
-    position: relative;
-    overflow: hidden;
-}
-.hero-card::before {
-    content: "🚨";
-    position: absolute; top: 1rem; right: 1.5rem;
-    font-size: 3.5rem; opacity: 0.18;
-}
-.hero-card .mag { font-size: 4rem; font-weight: 900; line-height: 1; color: #fca5a5; }
-.hero-card h3 { font-size: 1.1rem; font-weight: 700; margin: 0.3rem 0; }
-.hero-card p { font-size: 0.88rem; color: #fecaca; line-height: 1.6; margin: 0; }
-.hero-card .badge-ev {
-    display: inline-block; background: #fca5a5; color: #7f1d1d;
-    font-size: 0.7rem; font-weight: 700; border-radius: 4px;
-    padding: 2px 8px; margin-bottom: 0.5rem; text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-.hero-detail {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem;
-    margin-top: 1rem;
-}
-.hero-detail-item { text-align: center; }
-.hero-detail-item .hval { font-size: 1.3rem; font-weight: 700; color: #fca5a5; }
-.hero-detail-item .hlbl { font-size: 0.72rem; color: #fecaca; margin-top: 2px; }
-
-.metric-card {
-    background: white; border: 1px solid #e2e8f0;
-    border-radius: 1rem; padding: 1.2rem 1.4rem;
-    text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-}
-.metric-card .label { font-size: 0.72rem; color: #64748b; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.4rem; }
-.metric-card .value { font-size: 2rem; font-weight: 700; color: #0f172a; line-height: 1.1; }
-.metric-card .unit { font-size: 0.8rem; color: #94a3b8; font-weight: 400; }
-.metric-card .delta { font-size: 0.78rem; margin-top: 0.3rem; font-weight: 500; }
-
-.section-title { font-size: 1.35rem; font-weight: 700; color: #0f172a;
-    margin: 2rem 0 0.3rem 0; letter-spacing: -0.01em; }
-.section-sub { font-size: 0.88rem; color: #64748b; margin-bottom: 1.2rem; }
-
-.city-card {
-    background: white; border: 1px solid #e2e8f0; border-radius: 0.9rem;
-    padding: 1rem 1.2rem; margin-bottom: 0.7rem;
-}
-.city-card .cname { font-size: 1rem; font-weight: 600; color: #0f172a; }
-.city-card .cdesc { font-size: 0.82rem; color: #475569; line-height: 1.6; margin-top: 0.3rem; }
-
-.curiosity-box {
-    background: #fff7ed; border-left: 4px solid #ea580c;
-    border-radius: 0 0.7rem 0.7rem 0;
-    padding: 1rem 1.2rem; margin-bottom: 1rem;
-    font-size: 0.9rem; color: #7c2d12; line-height: 1.6;
-}
-.curiosity-box strong { color: #c2410c; }
-
-.info-box {
-    background: #f0f9ff; border-left: 4px solid #0284c7;
-    border-radius: 0 0.7rem 0.7rem 0;
-    padding: 1rem 1.2rem; margin-bottom: 1rem;
-    font-size: 0.88rem; color: #0c4a6e; line-height: 1.6;
-}
-
-.timeline-item {
-    display: flex; gap: 1rem; align-items: flex-start;
-    padding: 0.9rem 0; border-bottom: 1px solid #f1f5f9;
-}
-.timeline-dot {
-    width: 36px; height: 36px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.85rem; font-weight: 700; flex-shrink: 0; color: white;
-}
-.timeline-content .te { font-size: 0.72rem; color: #94a3b8; font-weight: 500; }
-.timeline-content .tm { font-size: 0.95rem; font-weight: 600; color: #0f172a; margin: 1px 0; }
-.timeline-content .td { font-size: 0.82rem; color: #475569; line-height: 1.5; }
-
-.source-box {
-    background: #f8fafc; border: 1px solid #e2e8f0;
-    border-radius: 0.7rem; padding: 0.8rem 1rem;
-    font-size: 0.78rem; color: #64748b; margin-top: 2rem;
-}
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        padding: 1rem 0;
+    }
+    .sub-header {
+        font-size: 1.3rem;
+        color: #dc2626;
+        font-weight: bold;
+        border-left: 4px solid #dc2626;
+        padding-left: 1rem;
+        margin: 1rem 0;
+    }
+    .info-card {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin: 1rem 0;
+    }
+    .highlight {
+        color: #dc2626;
+        font-weight: bold;
+        font-size: 1.2rem;
+    }
+    .metric-card {
+        background: white;
+        padding: 1rem;
+        border-radius: 8px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .risk-high {
+        color: #dc2626;
+        font-weight: bold;
+    }
+    .risk-moderate {
+        color: #f59e0b;
+        font-weight: bold;
+    }
+    .footer {
+        text-align: center;
+        padding: 2rem;
+        margin-top: 2rem;
+        border-top: 1px solid #e5e7eb;
+        color: #6b7280;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# DADOS ESTÁTICOS — CIDADES DA PATAGÔNIA
-# ─────────────────────────────────────────────
-PATAGONIA_CITIES = {
-    "Puerto Williams": {
-        "lat": -54.9333, "lon": -67.6167,
-        "country": "Chile 🇨🇱", "flag": "🇨🇱",
-        "pop": 1900, "highlight": True,
-        "desc": "Cidade mais austral do mundo. Pesquisador Amauri Almeida residiu aqui de março a outubro de 2025 e vivenciou o sismo de M7.4 em 02/05/2025.",
-        "mmi_may2025": "V-VI (forte)",
-        "seismic_risk": "Muito Alto",
-    },
-    "Punta Arenas": {
-        "lat": -53.1638, "lon": -70.9171,
-        "country": "Chile 🇨🇱", "flag": "🇨🇱",
-        "pop": 143_000,
-        "desc": "Capital de Magalhães. Ruas lotadas de residentes em busca de abrigos durante a evacuação de 02/05/2025. Fator de capacidade eólico de 58%.",
-        "mmi_may2025": "III-IV (leve a moderado)",
-        "seismic_risk": "Alto",
-    },
-    "Puerto Natales": {
-        "lat": -51.7306, "lon": -72.5014,
-        "country": "Chile 🇨🇱", "flag": "🇨🇱",
-        "pop": 21_000,
-        "desc": "Portal do Torres del Paine. Evacuada durante alerta de tsunami de 02/05/2025. Risco sísmico moderado nesta área.",
-        "mmi_may2025": "II-III (leve)",
-        "seismic_risk": "Moderado-Alto",
-    },
-    "Rio Verde": {
-        "lat": -52.1333, "lon": -71.9833,
-        "country": "Chile 🇨🇱", "flag": "🇨🇱",
-        "pop": 350,
-        "desc": "Pequena localidade rural na margem do Estreito de Magalhães. Citada em alertas de evacuação de 02/05/2025.",
-        "mmi_may2025": "II-III (leve)",
-        "seismic_risk": "Moderado",
-    },
-    "Ushuaia": {
-        "lat": -54.8019, "lon": -68.3030,
-        "country": "Argentina 🇦🇷", "flag": "🇦🇷",
-        "pop": 56_825,
-        "desc": "Cidade mais austral da Argentina. A apenas 222 km do epicentro de 02/05/2025. Alerta de tsunami ativo por ~3 horas.",
-        "mmi_may2025": "IV-V (moderado)",
-        "seismic_risk": "Muito Alto",
-    },
-    "Rio Gallegos": {
-        "lat": -51.6201, "lon": -69.2183,
-        "country": "Argentina 🇦🇷", "flag": "🇦🇷",
-        "pop": 105_000,
-        "desc": "Capital da Província de Santa Cruz. Sentido levemente o sismo de maio/2025. Principal polo eólico patagônico argentino.",
-        "mmi_may2025": "II (muito leve)",
-        "seismic_risk": "Moderado",
-    },
-    "Rio Grande": {
-        "lat": -53.7880, "lon": -67.7100,
-        "country": "Argentina 🇦🇷", "flag": "🇦🇷",
-        "pop": 52_681,
-        "desc": "Segunda maior cidade da Tierra del Fuego. A 334 km do epicentro de 02/05/2025. Atividades aquáticas suspensas na ocasião.",
-        "mmi_may2025": "III-IV (leve a moderado)",
-        "seismic_risk": "Alto",
-    },
-    "Porvenir": {
-        "lat": -53.2986, "lon": -70.3660,
-        "country": "Chile 🇨🇱", "flag": "🇨🇱",
-        "pop": 6_200,
-        "desc": "Capital da Provincia de Tierra del Fuego chilena. Evacuada durante alerta de 02/05/2025. Zona de alto risco pelo Canal de Beagle.",
-        "mmi_may2025": "III-IV (leve)",
-        "seismic_risk": "Alto",
-    },
-}
+# Título principal
+st.markdown('<div class="main-header">🌍 Sismologia da Patagônia</div>', unsafe_allow_html=True)
+st.markdown('<div style="text-align: center; color: #6b7280; margin-bottom: 2rem;">006 · CHILE & ARGENTINA · PATAGÔNIA SUL</div>', unsafe_allow_html=True)
 
-CAPITALS = {
-    "Santiago": {
-        "lat": -33.4489, "lon": -70.6693,
-        "country": "Chile 🇨🇱", "flag": "🇨🇱",
-        "pop": 7_200_000,
-        "desc": "Capital do Chile. ~174 sismos/ano em raio de 50 km. Última M6+ em abr/2017. Localizada sobre a Placa Nazca (Andes centrais).",
-        "quakes_per_year": 174,
-        "max_mag_10y": 6.7,
-        "seismic_risk": "Alto",
-        "risk_color": "#f59e0b",
-    },
-    "Buenos Aires": {
-        "lat": -34.6037, "lon": -58.3816,
-        "country": "Argentina 🇦🇷", "flag": "🇦🇷",
-        "pop": 15_700_000,
-        "desc": "Capital da Argentina. ~1 sismo/ano detectável. M5+ ocorre 1x a cada 13 anos. Longe das zonas de subducção, risk sísmico baixo comparado com Patagônia.",
-        "quakes_per_year": 1.1,
-        "max_mag_10y": 5.0,
-        "seismic_risk": "Baixo",
-        "risk_color": "#22c55e",
-    },
-}
+# Sidebar
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/3276/3276938.png", width=80)
+    st.markdown("## 📊 Filtros")
+    
+    # Filtro de magnitude
+    min_magnitude = st.slider(
+        "Magnitude mínima",
+        min_value=4.0,
+        max_value=7.5,
+        value=4.5,
+        step=0.1,
+        help="Filtrar eventos sísmicos por magnitude"
+    )
+    
+    # Filtro de data
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input(
+            "Data inicial",
+            value=datetime(2024, 1, 1),
+            max_value=datetime(2026, 5, 31)
+        )
+    with col2:
+        end_date = st.date_input(
+            "Data final",
+            value=datetime(2026, 5, 9),
+            max_value=datetime(2026, 5, 31)
+        )
+    
+    st.markdown("---")
+    st.markdown("### 🔬 Contexto Geológico")
+    st.info(
+        "A sismicidade patagônica resulta da interação das placas de Nazca, "
+        "Antártica, Scotia e da Falha Magallanes-Fagnano."
+    )
+    
+    st.markdown("---")
+    st.markdown("### 👨‍🔬 Pesquisador")
+    st.markdown(
+        "**Amauri Almeida de Souza Junior**\n\n"
+        "📍 Puerto Williams, Chile (2025)\n\n"
+        "📍 São Paulo, SP, Brasil"
+    )
 
-# ─────────────────────────────────────────────
-# EVENTO PRINCIPAL — M7.4 — 02/05/2025
-# ─────────────────────────────────────────────
-MAIN_EVENT = {
-    "date": "02 de Maio de 2025",
-    "time_local": "09:58 (horário local, GMT-3)",
-    "magnitude": 7.4,
-    "depth_km": 10,
-    "lat": -56.10,
-    "lon": -68.44,
-    "place": "Passagem de Drake — 219 km ao sul de Ushuaia, Argentina",
-    "usgs_id": "us7000pwkn",
-    "mmi_max": "VIII (Severo)",
-    "tsunami_warning": True,
-    "evacuated": 1800,
-    "aftershocks_total": 50,
-    "max_aftershock": 6.4,
-    "aftershock_1": {"mag": 5.4, "time": "13:07 UTC"},
-    "aftershock_2": {"mag": 5.7, "time": "13:09 UTC"},
-    "aftershock_3": {"mag": 5.6, "time": "13:10 UTC"},
-    "tsunami_obs_cm": 6,
-    "researcher_note": (
-        "Eu estava em Puerto Williams quando o chão começou a tremer às 9h58 da manhã. "
-        "O sismo durou vários segundos — objetos balançaram, portas vibraram. "
-        "Logo em seguida as sirenes de tsunami soaram pela cidade. "
-        "Junto com os moradores, evacuei para áreas altas. "
-        "Foi uma experiência que marca: perceber que a Patagônia não é só vento e silêncio — "
-        "é também terra viva, com uma força interna que de vez em quando se manifesta. "
-        "Mais de 50 réplicas foram registradas nas horas seguintes."
-    ),
-}
-
-# ─────────────────────────────────────────────
-# DADOS HISTÓRICOS REPRESENTATIVOS 2024-2025
-# ─────────────────────────────────────────────
-HISTORICAL_EVENTS = [
-    # 2024
-    {"date": "2024-01-12", "mag": 5.3, "lat": -52.1, "lon": -74.3, "depth": 15, "place": "Chile-Argentina border", "felt": "Punta Arenas"},
-    {"date": "2024-02-18", "mag": 4.8, "lat": -54.2, "lon": -68.9, "depth": 22, "place": "Tierra del Fuego, Argentina", "felt": "Ushuaia"},
-    {"date": "2024-03-07", "mag": 5.6, "lat": -50.8, "lon": -75.1, "depth": 12, "place": "Aysén, Chile", "felt": "Puerto Aysén"},
-    {"date": "2024-04-21", "mag": 4.5, "lat": -53.8, "lon": -67.2, "depth": 18, "place": "Canal de Beagle", "felt": "Rio Grande"},
-    {"date": "2024-05-03", "mag": 5.1, "lat": -51.3, "lon": -73.6, "depth": 8, "place": "Magalhães, Chile", "felt": "Puerto Natales"},
-    {"date": "2024-06-15", "mag": 4.9, "lat": -52.7, "lon": -69.8, "depth": 30, "place": "Estreito de Magalhães", "felt": "Rio Gallegos"},
-    {"date": "2024-07-09", "mag": 5.8, "lat": -49.5, "lon": -75.6, "depth": 20, "place": "Aysén offshore, Chile", "felt": "Não sentido"},
-    {"date": "2024-08-22", "mag": 4.7, "lat": -54.5, "lon": -67.9, "depth": 14, "place": "Tierra del Fuego, Chile", "felt": "Puerto Williams, Ushuaia"},
-    {"date": "2024-09-11", "mag": 5.4, "lat": -51.9, "lon": -74.2, "depth": 10, "place": "Patagônia offshore", "felt": "Punta Arenas"},
-    {"date": "2024-10-28", "mag": 4.6, "lat": -53.1, "lon": -68.5, "depth": 25, "place": "Canal de Beagle", "felt": "Ushuaia"},
-    {"date": "2024-11-14", "mag": 5.2, "lat": -50.2, "lon": -74.8, "depth": 16, "place": "Patagônia central, Chile", "felt": "Não sentido"},
-    {"date": "2024-12-03", "mag": 6.1, "lat": -55.2, "lon": -68.1, "depth": 10, "place": "Sul de Tierra del Fuego", "felt": "Puerto Williams, Ushuaia, Rio Grande"},
-    {"date": "2024-12-20", "mag": 4.3, "lat": -52.4, "lon": -71.3, "depth": 35, "place": "Magalhães, Argentina", "felt": "Rio Gallegos"},
-    # 2025 (até o evento principal)
-    {"date": "2025-01-08", "mag": 4.9, "lat": -54.1, "lon": -68.3, "depth": 18, "place": "Tierra del Fuego, Argentina", "felt": "Ushuaia"},
-    {"date": "2025-02-17", "mag": 5.5, "lat": -52.3, "lon": -73.7, "depth": 12, "place": "Magalhães offshore", "felt": "Puerto Natales"},
-    {"date": "2025-03-05", "mag": 4.4, "lat": -54.8, "lon": -67.5, "depth": 20, "place": "Cabo de Hornos, Chile", "felt": "Puerto Williams"},
-    {"date": "2025-03-22", "mag": 5.0, "lat": -51.6, "lon": -74.5, "depth": 15, "place": "Patagônia sul, Chile", "felt": "Não sentido"},
-    {"date": "2025-04-10", "mag": 4.7, "lat": -55.1, "lon": -68.8, "depth": 10, "place": "Passagem de Drake (norte)", "felt": "Puerto Williams"},
-    {"date": "2025-04-28", "mag": 5.1, "lat": -53.5, "lon": -70.1, "depth": 22, "place": "Estreito de Magalhães", "felt": "Punta Arenas, Rio Gallegos"},
-    # EVENTO PRINCIPAL
-    {"date": "2025-05-02", "mag": 7.4, "lat": -56.10, "lon": -68.44, "depth": 10,
-     "place": "Passagem de Drake — EVENTO PRINCIPAL", "felt": "Puerto Williams 🚨 (Amauri estava aqui), Punta Arenas, Ushuaia, Rio Grande, Puerto Natales, Rio Verde"},
-    # Réplicas
-    {"date": "2025-05-02", "mag": 6.4, "lat": -56.22, "lon": -68.51, "depth": 10, "place": "Réplica principal — Drake Passage", "felt": "Puerto Williams, Ushuaia"},
-    {"date": "2025-05-02", "mag": 5.7, "lat": -56.18, "lon": -68.48, "depth": 10, "place": "Réplica — Drake Passage", "felt": "Puerto Williams"},
-    {"date": "2025-05-02", "mag": 5.4, "lat": -56.15, "lon": -68.45, "depth": 10, "place": "Réplica — Drake Passage", "felt": "Puerto Williams"},
-    {"date": "2025-05-02", "mag": 5.6, "lat": -56.20, "lon": -68.50, "depth": 10, "place": "Réplica — Drake Passage", "felt": "Puerto Williams"},
-    # Pós-evento
-    {"date": "2025-05-15", "mag": 4.8, "lat": -55.8, "lon": -68.2, "depth": 15, "place": "Drake Passage (réplica tardia)", "felt": "Puerto Williams"},
-    {"date": "2025-05-28", "mag": 5.3, "lat": -51.7, "lon": -74.1, "depth": 12, "place": "Magalhães, Chile", "felt": "Puerto Natales"},
-    {"date": "2025-06-14", "mag": 4.6, "lat": -54.0, "lon": -68.1, "depth": 18, "place": "Tierra del Fuego", "felt": "Ushuaia"},
-    {"date": "2025-07-03", "mag": 5.1, "lat": -52.5, "lon": -74.0, "depth": 10, "place": "Patagônia offshore", "felt": "Não sentido"},
-    {"date": "2025-08-19", "mag": 4.5, "lat": -53.2, "lon": -70.5, "depth": 28, "place": "Estreito de Magalhães", "felt": "Punta Arenas"},
-    {"date": "2025-09-07", "mag": 5.0, "lat": -50.9, "lon": -75.3, "depth": 14, "place": "Aysén Sul, Chile", "felt": "Não sentido"},
-    {"date": "2025-10-22", "mag": 4.8, "lat": -54.7, "lon": -67.6, "depth": 16, "place": "Tierra del Fuego", "felt": "Puerto Williams"},
-    {"date": "2025-11-11", "mag": 5.4, "lat": -52.0, "lon": -73.8, "depth": 12, "place": "Magalhães offshore", "felt": "Puerto Natales, Punta Arenas"},
-    {"date": "2025-12-01", "mag": 4.7, "lat": -53.8, "lon": -69.9, "depth": 22, "place": "Argentina-Chile border", "felt": "Rio Gallegos"},
-    # 2026
-    {"date": "2026-01-10", "mag": 5.0, "lat": -55.3, "lon": -67.9, "depth": 10, "place": "Sul de Tierra del Fuego", "felt": "Puerto Williams, Ushuaia"},
-    {"date": "2026-02-25", "mag": 4.4, "lat": -51.5, "lon": -74.6, "depth": 18, "place": "Patagônia, Chile", "felt": "Não sentido"},
-    {"date": "2026-03-18", "mag": 5.2, "lat": -53.6, "lon": -70.3, "depth": 15, "place": "Magalhães, Chile", "felt": "Punta Arenas, Rio Verde"},
-    {"date": "2026-04-05", "mag": 4.9, "lat": -54.2, "lon": -68.5, "depth": 20, "place": "Canal de Beagle", "felt": "Ushuaia, Rio Grande"},
-]
-
-df_events = pd.DataFrame(HISTORICAL_EVENTS)
-df_events["date"] = pd.to_datetime(df_events["date"])
-df_events["year"] = df_events["date"].dt.year
-df_events["month"] = df_events["date"].dt.month
-df_events["is_main"] = df_events["mag"] == 7.4
-
-# ─────────────────────────────────────────────
-# FUNÇÃO USGS API
-# ─────────────────────────────────────────────
+# Função para carregar dados da USGS
 @st.cache_data(ttl=3600)
-def fetch_usgs_earthquakes(minlat=-60, maxlat=-45, minlon=-80, maxlon=-60,
-                            starttime="2024-01-01", endtime="2026-05-09",
-                            minmag=4.5):
+def load_usgs_data(starttime, endtime, min_lat=-60, max_lat=-45, min_lon=-80, max_lon=-60, min_mag=4.5):
+    """
+    Carrega dados sísmicos da API USGS
+    """
     url = "https://earthquake.usgs.gov/fdsnws/event/1/query"
+    
     params = {
         "format": "geojson",
-        "starttime": starttime,
-        "endtime": endtime,
-        "minlatitude": minlat,
-        "maxlatitude": maxlat,
-        "minlongitude": minlon,
-        "maxlongitude": maxlon,
-        "minmagnitude": minmag,
-        "orderby": "time",
-        "limit": 500,
+        "starttime": starttime.strftime("%Y-%m-%d"),
+        "endtime": endtime.strftime("%Y-%m-%d"),
+        "minlatitude": min_lat,
+        "maxlatitude": max_lat,
+        "minlongitude": min_lon,
+        "maxlongitude": max_lon,
+        "minmagnitude": min_mag,
+        "orderby": "time"
     }
+    
     try:
-        r = requests.get(url, params=params, timeout=20)
-        if r.status_code == 200:
-            data = r.json()
-            feats = data.get("features", [])
-            rows = []
-            for f in feats:
-                p = f["properties"]
-                g = f["geometry"]["coordinates"]
-                rows.append({
-                    "date": pd.to_datetime(p["time"], unit="ms"),
-                    "mag": p["mag"],
-                    "place": p["place"],
-                    "depth": g[2],
-                    "lon": g[0],
-                    "lat": g[1],
-                    "url": p["url"],
-                })
-            df = pd.DataFrame(rows)
-            if not df.empty:
-                df["year"] = df["date"].dt.year
-                df["month"] = df["date"].dt.month
-            return df
+        response = requests.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Processar dados
+        events = []
+        for feature in data['features']:
+            props = feature['properties']
+            geom = feature['geometry']
+            
+            event = {
+                'time': datetime.fromtimestamp(props['time'] / 1000),
+                'magnitude': props['mag'],
+                'depth': geom['coordinates'][2],
+                'latitude': geom['coordinates'][1],
+                'longitude': geom['coordinates'][0],
+                'place': props['place'],
+                'url': props['url'],
+                'tsunami': props['tsunami'],
+                'mmi': props.get('mmi', None)
+            }
+            events.append(event)
+        
+        df = pd.DataFrame(events)
+        return df if not df.empty else pd.DataFrame()
+        
     except Exception as e:
-        pass
-    return None
+        st.error(f"Erro ao carregar dados da USGS: {str(e)}")
+        return pd.DataFrame()
 
-# ─────────────────────────────────────────────
-# FUNÇÕES DE COR
-# ─────────────────────────────────────────────
-def mag_color(mag):
-    if mag >= 7.0: return "#7f1d1d"
-    elif mag >= 6.0: return "#dc2626"
-    elif mag >= 5.0: return "#ea580c"
-    elif mag >= 4.0: return "#d97706"
-    else: return "#65a30d"
+# Dados adicionais das cidades
+cities_data = {
+    'city': ['Puerto Williams', 'Punta Arenas', 'Puerto Natales', 'Rio Verde', 
+             'Ushuaia', 'Rio Gallegos', 'Rio Grande', 'Santiago', 'Buenos Aires'],
+    'country': ['Chile', 'Chile', 'Chile', 'Chile', 'Argentina', 'Argentina', 
+                'Argentina', 'Chile', 'Argentina'],
+    'latitude': [-54.9333, -53.1500, -51.7333, -52.6500, -54.8000, -51.6222, -53.8000, -33.4489, -34.6037],
+    'longitude': [-67.6167, -70.9111, -72.5000, -71.4667, -68.3000, -69.2181, -67.7000, -70.6693, -58.3816],
+    'mmi_2025': [5.5, 3.5, 2.5, 2.5, 4.5, 2.0, 3.5, None, None],
+    'risk': ['Muito Alto', 'Alto', 'Moderado-Alto', 'Moderado', 'Muito Alto', 
+             'Moderado', 'Alto', 'Alto', 'Baixo'],
+    'annual_quakes': [None, None, None, None, None, None, None, 174, 1.1]
+}
 
-def mag_radius(mag):
-    return max(5, int((mag - 3) ** 2.2))
+cities_df = pd.DataFrame(cities_data)
 
-# ─────────────────────────────────────────────
-# HEADER
-# ─────────────────────────────────────────────
-st.markdown("""
-<div class="main-header">
-    <p style="color:#f4a96a; font-size:0.8rem; font-weight:600; letter-spacing:0.1em; margin-bottom:0.5rem;">
-        006 · CHILE & ARGENTINA · PATAGÔNIA SUL
-    </p>
-    <h1>🌍 Sismologia da Patagônia</h1>
-    <p>Terremotos na Patagônia Chilena e Argentina — 2024 a 2026.<br>
-    Inclui o <strong>sismo M7.4 de 02/05/2025</strong> na Passagem de Drake, vivenciado pelo pesquisador em Puerto Williams.</p>
-    <div style="margin-top:1rem;">
-        <span class="tag-pill">Python</span>
-        <span class="tag-pill">Streamlit</span>
-        <span class="tag-pill">Folium</span>
-        <span class="tag-pill">Plotly</span>
-        <span class="tag-pill">USGS API</span>
-        <span class="tag-pill">CSN Chile</span>
-        <span class="tag-pill">INPRES Argentina</span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+# Carregar dados
+with st.spinner("Carregando dados sísmicos da USGS..."):
+    df = load_usgs_data(start_date, end_date, min_mag=min_magnitude)
 
-# ─────────────────────────────────────────────
-# CARD DE DESTAQUE — 02/05/2025
-# ─────────────────────────────────────────────
-st.markdown(f"""
-<div class="hero-card">
-    <span class="badge-ev">🚨 Evento Histórico — Menção Honrosa</span>
-    <div style="display:flex; align-items:flex-start; gap:1.5rem;">
-        <div>
-            <div class="mag">M {MAIN_EVENT['magnitude']}</div>
-            <h3>Passagem de Drake — {MAIN_EVENT['date']}</h3>
-            <p>{MAIN_EVENT['place']}</p>
-        </div>
-    </div>
-    <div class="hero-detail">
-        <div class="hero-detail-item">
-            <div class="hval">10 km</div>
-            <div class="hlbl">Profundidade</div>
-        </div>
-        <div class="hero-detail-item">
-            <div class="hval">1.800</div>
-            <div class="hlbl">Pessoas evacuadas</div>
-        </div>
-        <div class="hero-detail-item">
-            <div class="hval">50+</div>
-            <div class="hlbl">Réplicas registradas</div>
-        </div>
-    </div>
-    <div style="margin-top:1.2rem; background:rgba(0,0,0,0.2); border-radius:0.7rem; padding:1rem;">
-        <p style="font-style:italic; font-size:0.88rem; color:#fecaca; margin:0;">
-        ✍️ <strong style="color:#fca5a5;">Relato do pesquisador:</strong><br>
-        "{MAIN_EVENT['researcher_note']}"
-        </p>
-        <p style="font-size:0.75rem; color:#fca5a5; margin:0.5rem 0 0 0; text-align:right;">
-        — Amauri Almeida, Puerto Williams, 02 de maio de 2025
-        </p>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+# Se não houver dados, usar dados de exemplo
+if df.empty:
+    st.warning("Usando dados de exemplo devido à indisponibilidade da API...")
+    # Criar dados de exemplo
+    np.random.seed(42)
+    n_events = 50
+    df = pd.DataFrame({
+        'time': [datetime(2025, 1, 1) + timedelta(days=np.random.randint(0, 500)) for _ in range(n_events)],
+        'magnitude': np.random.uniform(4.5, 7.5, n_events),
+        'depth': np.random.uniform(5, 150, n_events),
+        'latitude': np.random.uniform(-60, -45, n_events),
+        'longitude': np.random.uniform(-80, -60, n_events)
+    })
+    df = df.sort_values('time')
 
-# ─────────────────────────────────────────────
-# SIDEBAR
-# ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### ⚙️ Filtros")
-    st.divider()
+# Estatísticas principais
+col1, col2, col3, col4 = st.columns(4)
 
-    mag_min = st.slider("Magnitude mínima", 4.0, 7.0, 4.5, 0.1)
-    years_sel = st.multiselect("Anos", [2024, 2025, 2026], default=[2024, 2025, 2026])
-
-    st.divider()
-    use_api = st.toggle("🔌 Buscar dados reais (USGS API)", value=False,
-                        help="Faz chamada à API da USGS. Pode demorar ~15s.")
-
-    show_capitals = st.toggle("🏙️ Mostrar capitais (Santiago / Buenos Aires)", value=True)
-
-    st.divider()
+with col1:
     st.markdown("""
-    **Fontes de dados**
-    - USGS Earthquake Catalog API
-    - CSN Chile (sismologia.cl)
-    - INPRES Argentina
-    - The Watchers / VolcanoDiscovery
-    - Fox Weather / CBS News / Newsweek
-    """)
+    <div class="metric-card">
+        <h3>📊 Total de Eventos</h3>
+        <h2 style="color: #dc2626;">{}</h2>
+        <small>Magnitude ≥ {}</small>
+    </div>
+    """.format(len(df), min_magnitude), unsafe_allow_html=True)
+
+with col2:
+    max_mag = df['magnitude'].max() if not df.empty else 0
     st.markdown("""
-    **Pesquisador**\n
-    Amauri Almeida\n
-    📍 Puerto Williams 🇨🇱 (mar–out 2025)\n
-    [🌐 GitHub](https://github.com/amaurialmeida)
-    """)
+    <div class="metric-card">
+        <h3>⚡ Maior Magnitude</h3>
+        <h2 style="color: #dc2626;">M{:.1f}</h2>
+        <small>Registrado na região</small>
+    </div>
+    """.format(max_mag), unsafe_allow_html=True)
 
-# Filtrar dados locais
-df_filtered = df_events[
-    (df_events["mag"] >= mag_min) &
-    (df_events["year"].isin(years_sel))
-].copy()
+with col3:
+    avg_depth = df['depth'].mean() if not df.empty else 0
+    st.markdown("""
+    <div class="metric-card">
+        <h3>📏 Profundidade Média</h3>
+        <h2 style="color: #f59e0b;">{:.1f} km</h2>
+        <small>Crosta terrestre</small>
+    </div>
+    """.format(avg_depth), unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# TABS
-# ─────────────────────────────────────────────
-tab_map, tab_timeline, tab_stats, tab_cities, tab_context = st.tabs([
-    "🗺️ Mapa de Epicentros",
-    "📅 Timeline de Eventos",
-    "📊 Análise Estatística",
-    "🏙️ Cidades & Impactos",
-    "🔬 Contexto Geológico",
-])
+with col4:
+    unique_dates = df['time'].dt.date.nunique() if not df.empty else 0
+    st.markdown("""
+    <div class="metric-card">
+        <h3>📅 Dias com Atividade</h3>
+        <h2 style="color: #10b981;">{}</h2>
+        <small>Período analisado</small>
+    </div>
+    """.format(unique_dates), unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════
-# TAB 1 — MAPA
-# ══════════════════════════════════════════════
-with tab_map:
-    st.markdown('<div class="section-title">Mapa de Epicentros — Patagônia Sul</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Eventos sísmicos 2024–2026. Tamanho e cor dos marcadores proporcionais à magnitude. Clique para detalhes.</div>', unsafe_allow_html=True)
+st.markdown("---")
 
-    # Buscar dados reais se solicitado
-    if use_api:
-        with st.spinner("🔄 Conectando à USGS Earthquake Catalog API..."):
-            df_api = fetch_usgs_earthquakes()
-        if df_api is not None and not df_api.empty:
-            st.success(f"✅ USGS API: {len(df_api)} eventos carregados (M≥4.5, Patagônia, 2024–2026)")
-            df_plot = df_api[df_api["mag"] >= mag_min].copy()
+# Evento principal em destaque
+st.markdown('<div class="sub-header">🚨 EVENTO PRINCIPAL — M7.4 · PASSAGEM DE DRAKE · 02/05/2025</div>', unsafe_allow_html=True)
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.markdown("""
+    <div class="info-card">
+        <p style="font-style: italic; font-size: 1.1rem;">
+        "Eu estava em Puerto Williams quando o chão começou a tremer às 9h58 da manhã. 
+        Logo em seguida as sirenes de tsunami soaram pela cidade."
+        </p>
+        <p style="text-align: right; font-weight: bold;">— <strong>Amauri Almeida</strong>, pesquisador</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col2:
+    st.markdown("""
+    <div class="info-card">
+        <strong>📋 Detalhes do Evento</strong><br>
+        • Magnitude: <span class="highlight">M7.4</span><br>
+        • Data/Hora: 02/05/2025 · 09:58 local (GMT-3)<br>
+        • Epicentro: Passagem de Drake, 219 km sul de Ushuaia<br>
+        • Profundidade: 10 km (raso)<br>
+        • Alerta tsunami: ✅ Emitido pelo NOAA PTWC<br>
+        • Evacuados: ~1.800 pessoas<br>
+        • Réplicas: 50+ (maior: M6.4)
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("---")
+
+# Mapa interativo
+st.markdown('<div class="sub-header">🗺️ MAPA DE EPICENTROS — PATAGÔNIA</div>', unsafe_allow_html=True)
+
+# Criar mapa base
+m = folium.Map(location=[-54.0, -68.0], zoom_start=5, tiles='OpenStreetMap')
+
+# Adicionar marcadores para cidades
+for _, city in cities_df.iterrows():
+    if pd.notna(city['latitude']):
+        # Cor baseada no risco
+        if city['risk'] in ['Muito Alto', 'Alto']:
+            color = 'red'
+        elif city['risk'] in ['Moderado-Alto', 'Moderado']:
+            color = 'orange'
         else:
-            st.warning("⚠️ API indisponível — usando base de dados de referência")
-            df_plot = df_filtered
-    else:
-        df_plot = df_filtered
+            color = 'blue'
+        
+        folium.Marker(
+            [city['latitude'], city['longitude']],
+            popup=f"<b>{city['city']}</b><br>País: {city['country']}<br>Risco: {city['risk']}",
+            icon=folium.Icon(color=color, icon='info-sign')
+        ).add_to(m)
 
-    # Métricas rápidas
-    col1, col2, col3, col4 = st.columns(4)
+# Adicionar eventos sísmicos
+if not df.empty:
+    for _, event in df.iterrows():
+        # Tamanho baseado na magnitude
+        radius = event['magnitude'] * 2
+        
+        # Cor baseada na magnitude
+        if event['magnitude'] >= 7.0:
+            color = 'darkred'
+            fill_color = 'red'
+        elif event['magnitude'] >= 6.0:
+            color = 'red'
+            fill_color = 'orange'
+        elif event['magnitude'] >= 5.0:
+            color = 'orange'
+            fill_color = 'yellow'
+        else:
+            color = 'green'
+            fill_color = 'lightgreen'
+        
+        folium.CircleMarker(
+            [event['latitude'], event['longitude']],
+            radius=radius,
+            popup=f"<b>M{event['magnitude']:.1f}</b><br>Data: {event['time'].strftime('%Y-%m-%d')}<br>Profundidade: {event['depth']:.1f} km",
+            color=color,
+            fill=True,
+            fill_color=fill_color,
+            fill_opacity=0.6
+        ).add_to(m)
+
+# Destacar evento principal (M7.4 de 02/05/2025)
+main_event_lat, main_event_lon = -58.5, -68.5  # Aproximadamente Passagem de Drake
+folium.CircleMarker(
+    [main_event_lat, main_event_lon],
+    radius=20,
+    popup="<b>⭐ M7.4 · 02/05/2025 · Passagem de Drake</b><br>Evento principal vivenciado em Puerto Williams",
+    color='darkred',
+    fill=True,
+    fill_color='red',
+    fill_opacity=0.8,
+    weight=4
+).add_to(m)
+
+# Adicionar legenda
+legend_html = '''
+<div style="position: fixed; bottom: 50px; left: 50px; z-index: 1000; background-color: white; padding: 10px; border-radius: 5px; border: 2px solid grey; font-size: 12px;">
+    <b>Legenda:</b><br>
+    <i class="fa fa-circle" style="color:darkred"></i> M ≥ 7.0<br>
+    <i class="fa fa-circle" style="color:red"></i> M 6.0 - 6.9<br>
+    <i class="fa fa-circle" style="color:orange"></i> M 5.0 - 5.9<br>
+    <i class="fa fa-circle" style="color:green"></i> M 4.5 - 4.9<br>
+    🔴 Cidades com alto risco<br>
+    🟠 Cidades com risco moderado
+</div>
+'''
+st.markdown(legend_html, unsafe_allow_html=True)
+
+# Exibir mapa
+st_folium(m, width=725, height=500)
+
+st.markdown("---")
+
+# Gráficos de análise
+st.markdown('<div class="sub-header">📊 ANÁLISE ESTATÍSTICA</div>', unsafe_allow_html=True)
+
+if not df.empty:
+    # Criar subplots
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=('Distribuição por Magnitude', 'Profundidade vs Magnitude',
+                       'Frequência Mensal', 'Magnitude ao Longo do Tempo'),
+        specs=[[{'type': 'histogram'}, {'type': 'scatter'}],
+               [{'type': 'bar'}, {'type': 'scatter'}]]
+    )
+    
+    # 1. Histograma de magnitudes
+    fig.add_trace(
+        go.Histogram(x=df['magnitude'], nbinsx=15, name='Magnitude',
+                    marker_color='#3b82f6', opacity=0.7),
+        row=1, col=1
+    )
+    
+    # 2. Scatter magnitude vs profundidade
+    fig.add_trace(
+        go.Scatter(x=df['magnitude'], y=df['depth'], mode='markers',
+                  marker=dict(size=8, color=df['magnitude'], colorscale='Viridis',
+                            showscale=True, colorbar=dict(title="Magnitude")),
+                  name='Eventos', text=df['time'].dt.strftime('%Y-%m-%d')),
+        row=1, col=2
+    )
+    
+    # 3. Frequência mensal
+    df['month'] = df['time'].dt.to_period('M')
+    monthly_counts = df.groupby('month').size().reset_index(name='count')
+    monthly_counts['month_str'] = monthly_counts['month'].astype(str)
+    
+    fig.add_trace(
+        go.Bar(x=monthly_counts['month_str'], y=monthly_counts['count'],
+              name='Eventos/mês', marker_color='#10b981', opacity=0.7),
+        row=2, col=1
+    )
+    
+    # CÓDIGO CORRIGIDO - LINHA VERTICAL E ANOTAÇÃO SEPARADAS
+    # Adiciona linha vertical em maio de 2025 (evento principal)
+    fig.add_vline(x="2025-05", line_dash="dash", line_color="#dc2626", row=2, col=1)
+    
+    # Adiciona anotação separadamente para evitar o bug do Plotly
+    fig.add_annotation(
+        x="2025-05",
+        y=0.98,
+        yref="paper",
+        text="02/05/2025 M7.4",
+        showarrow=False,
+        font=dict(color="#dc2626", size=10),
+        xanchor="left",
+        row=2, col=1
+    )
+    
+    # 4. Magnitude ao longo do tempo
+    fig.add_trace(
+        go.Scatter(x=df['time'], y=df['magnitude'], mode='markers+lines',
+                  name='Magnitude', line=dict(color='#8b5cf6', width=2),
+                  marker=dict(size=8, color=df['magnitude'], colorscale='Viridis'),
+                  text=df['depth'].round(1)),
+        row=2, col=2
+    )
+    
+    fig.update_layout(height=800, showlegend=False, title_text="Análise Sísmica da Patagônia")
+    fig.update_xaxes(title_text="Magnitude", row=1, col=1)
+    fig.update_xaxes(title_text="Magnitude", row=1, col=2)
+    fig.update_xaxes(title_text="Mês/Ano", row=2, col=1, tickangle=45)
+    fig.update_xaxes(title_text="Data", row=2, col=2)
+    fig.update_yaxes(title_text="Frequência", row=1, col=1)
+    fig.update_yaxes(title_text="Profundidade (km)", row=1, col=2)
+    fig.update_yaxes(title_text="Número de Eventos", row=2, col=1)
+    fig.update_yaxes(title_text="Magnitude", row=2, col=2)
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Estatísticas adicionais
+    st.markdown("### 📈 Estatísticas Detalhadas")
+    
+    col1, col2, col3 = st.columns(3)
+    
     with col1:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="label">Total de eventos</div>
-            <div class="value">{len(df_plot)}</div>
-            <div class="unit">M≥{mag_min:.1f} · 2024–2026</div>
-        </div>""", unsafe_allow_html=True)
+            <h4>📊 Distribuição de Magnitudes</h4>
+            <b>M ≥ 7.0:</b> {len(df[df['magnitude'] >= 7])} eventos<br>
+            <b>M 6.0-6.9:</b> {len(df[(df['magnitude'] >= 6) & (df['magnitude'] < 7)])} eventos<br>
+            <b>M 5.0-5.9:</b> {len(df[(df['magnitude'] >= 5) & (df['magnitude'] < 6)])} eventos<br>
+            <b>M 4.5-4.9:</b> {len(df[(df['magnitude'] >= 4.5) & (df['magnitude'] < 5)])} eventos
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col2:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="label">Maior magnitude</div>
-            <div class="value" style="color:#dc2626;">{df_plot['mag'].max():.1f}</div>
-            <div class="unit">M7.4 · 02/05/2025</div>
-        </div>""", unsafe_allow_html=True)
+            <h4>📏 Distribuição de Profundidades</h4>
+            <b>Raso (0-30 km):</b> {len(df[df['depth'] <= 30])} eventos<br>
+            <b>Intermediário (30-100 km):</b> {len(df[(df['depth'] > 30) & (df['depth'] <= 100)])} eventos<br>
+            <b>Profundo (>100 km):</b> {len(df[df['depth'] > 100])} eventos<br>
+            <b>Profundidade máxima:</b> {df['depth'].max():.1f} km
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col3:
+        # Evento mais recente
+        latest_event = df.iloc[-1]
         st.markdown(f"""
         <div class="metric-card">
-            <div class="label">Magnitude média</div>
-            <div class="value">{df_plot['mag'].mean():.2f}</div>
-            <div class="unit">M escala de momento</div>
-        </div>""", unsafe_allow_html=True)
-    with col4:
-        n_strong = len(df_plot[df_plot["mag"] >= 6.0])
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="label">Eventos M≥6.0</div>
-            <div class="value" style="color:#ea580c;">{n_strong}</div>
-            <div class="unit">Considerados fortes</div>
-        </div>""", unsafe_allow_html=True)
+            <h4>🕐 Último Evento Registrado</h4>
+            <b>Data:</b> {latest_event['time'].strftime('%d/%m/%Y')}<br>
+            <b>Magnitude:</b> M{latest_event['magnitude']:.1f}<br>
+            <b>Profundidade:</b> {latest_event['depth']:.1f} km
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("---")
 
-    # Folium Map
-    m = folium.Map(location=[-54.0, -69.5], zoom_start=5, tiles="CartoDB dark_matter")
-    folium.TileLayer("CartoDB positron", name="Claro").add_to(m)
-    folium.TileLayer("OpenStreetMap", name="OSM").add_to(m)
+# Cidades e impactos
+st.markdown('<div class="sub-header">🏙️ CIDADES & IMPACTOS — PATAGÔNIA</div>', unsafe_allow_html=True)
 
-    # Grupo de eventos
-    eq_group = folium.FeatureGroup(name="Terremotos")
+# Tabela de cidades
+st.dataframe(
+    cities_df[['city', 'country', 'mmi_2025', 'risk']],
+    column_config={
+        'city': 'Cidade',
+        'country': 'País',
+        'mmi_2025': st.column_config.NumberColumn('MMI (02/05/2025)', format="%.1f"),
+        'risk': 'Risco Sísmico'
+    },
+    use_container_width=True,
+    hide_index=True
+)
 
-    for _, row in df_plot.iterrows():
-        is_main = (abs(row["mag"] - 7.4) < 0.05 and abs(row["lat"] - (-56.10)) < 0.5)
-        color = mag_color(row["mag"])
-        radius = mag_radius(row["mag"])
+# Comparativo capitais
+st.markdown("### 🏛️ Comparativo com Capitais")
+col1, col2 = st.columns(2)
 
-        if is_main:
-            # Evento principal com destaque especial
-            folium.CircleMarker(
-                location=[row["lat"], row["lon"]],
-                radius=radius + 8,
-                color="#fca5a5", fill=True, fill_color="#7f1d1d",
-                fill_opacity=0.9, weight=3,
-                popup=folium.Popup(f"""
-                <div style="font-family:Inter,sans-serif; min-width:260px;">
-                <b style="color:#dc2626; font-size:1.1rem;">🚨 M {row['mag']} — EVENTO PRINCIPAL</b><br>
-                <b>{row['date'].strftime('%d/%m/%Y')}</b><br>
-                <small style="color:#64748b;">{row.get('place','')}</small><br><br>
-                <b>Profundidade:</b> {int(row['depth'])} km<br>
-                <b>Evacuados:</b> 1.800 pessoas<br>
-                <b>Alerta tsunami:</b> Sim — NOAA PTWC<br>
-                <b>Réplicas:</b> 50+ (máx. M6.4)<br>
-                <b>Sentido em:</b> {row.get('felt','')}<br><br>
-                <i style="color:#dc2626;">Pesquisador Amauri Almeida estava em Puerto Williams neste momento.</i>
-                </div>""", max_width=300),
-                tooltip=f"🚨 M{row['mag']} — EVENTO PRINCIPAL — {row['date'].strftime('%d/%m/%Y')}",
-            ).add_to(eq_group)
-            # Círculo pulsante
-            folium.CircleMarker(
-                location=[row["lat"], row["lon"]],
-                radius=radius + 20,
-                color="#fca5a5", fill=False, weight=2, opacity=0.4,
-            ).add_to(eq_group)
-        else:
-            folium.CircleMarker(
-                location=[row["lat"], row["lon"]],
-                radius=radius,
-                color=color, fill=True, fill_color=color,
-                fill_opacity=0.7, weight=1.5,
-                popup=folium.Popup(f"""
-                <div style="font-family:Inter,sans-serif; min-width:220px;">
-                <b>M {row['mag']}</b> — {row['date'].strftime('%d/%m/%Y')}<br>
-                <small style="color:#64748b;">{row.get('place','')}</small><br>
-                <b>Profundidade:</b> {int(row['depth'])} km<br>
-                <b>Sentido em:</b> {row.get('felt','N/A')}
-                </div>""", max_width=240),
-                tooltip=f"M{row['mag']} · {row['date'].strftime('%d/%m/%Y')}",
-            ).add_to(eq_group)
+with col1:
+    st.markdown("""
+    <div class="info-card">
+        <h4>📊 Santiago, Chile 🇨🇱</h4>
+        • Sismos/ano: <span class="highlight">~174</span><br>
+        • Maior M (10 anos): M6.7 (2017)<br>
+        • Risco: <span class="risk-high">Alto</span><br>
+        • Contexto: Próximo à zona de subducção da Placa de Nazca
+    </div>
+    """, unsafe_allow_html=True)
 
-    eq_group.add_to(m)
+with col2:
+    st.markdown("""
+    <div class="info-card">
+        <h4>📊 Buenos Aires, Argentina 🇦🇷</h4>
+        • Sismos/ano: <span class="highlight">~1.1</span><br>
+        • Maior M (10 anos): M5.0 (2026)<br>
+        • Risco: <span class="risk-moderate">Baixo</span><br>
+        • Contexto: Distante das principais zonas sísmicas ativas
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Cidades da Patagônia
-    city_group = folium.FeatureGroup(name="Cidades Patagônicas")
-    for city, info in PATAGONIA_CITIES.items():
-        icon_color = "red" if city == "Puerto Williams" else "blue"
-        icon_sym = "star" if city == "Puerto Williams" else "home"
-        folium.Marker(
-            location=[info["lat"], info["lon"]],
-            tooltip=f"{info['flag']} {city} — {info.get('mmi_may2025','—')} em 02/05/2025",
-            popup=folium.Popup(f"""
-            <div style="font-family:Inter,sans-serif; min-width:220px;">
-            <b>{info['flag']} {city}</b> · {info['country']}<br>
-            <small>População: {info['pop']:,}</small><br><br>
-            <b>MMI em 02/05/2025:</b> {info.get('mmi_may2025','—')}<br>
-            <b>Risco sísmico:</b> {info.get('seismic_risk','—')}<br><br>
-            <small style="color:#475569;">{info['desc']}</small>
-            </div>""", max_width=260),
-            icon=folium.Icon(color=icon_color, icon=icon_sym, prefix="fa"),
-        ).add_to(city_group)
-    city_group.add_to(m)
+st.markdown("---")
 
-    # Capitais
-    if show_capitals:
-        cap_group = folium.FeatureGroup(name="Capitais")
-        for cap, info in CAPITALS.items():
-            folium.Marker(
-                location=[info["lat"], info["lon"]],
-                tooltip=f"{info['flag']} {cap} — Risco: {info['seismic_risk']}",
-                popup=folium.Popup(f"""
-                <div style="font-family:Inter,sans-serif; min-width:220px;">
-                <b>{info['flag']} {cap}</b> · {info['country']}<br>
-                <small>Pop.: {info['pop']:,}</small><br><br>
-                <b>Sismos/ano:</b> {info['quakes_per_year']}<br>
-                <b>Maior M (10 anos):</b> {info['max_mag_10y']}<br>
-                <b>Risco sísmico:</b> {info['seismic_risk']}<br><br>
-                <small style="color:#475569;">{info['desc']}</small>
-                </div>""", max_width=260),
-                icon=folium.Icon(color="purple", icon="city", prefix="fa"),
-            ).add_to(cap_group)
-        cap_group.add_to(m)
+# Contexto geológico
+st.markdown('<div class="sub-header">🔬 CONTEXTO GEOLÓGICO — PLACAS TECTÔNICAS</div>', unsafe_allow_html=True)
 
-    # Legenda de magnitudes
-    legend_html = """
-    <div style="position:fixed; bottom:30px; left:30px; z-index:1000;
-         background:white; border-radius:10px; padding:12px 16px;
-         box-shadow:0 2px 8px rgba(0,0,0,0.15); font-family:Inter,sans-serif; font-size:12px;">
-      <b style="color:#0f172a;">Magnitude</b><br>
-      <span style="color:#7f1d1d;">⬤</span> M7+ (Maior)<br>
-      <span style="color:#dc2626;">⬤</span> M6–6.9 (Forte)<br>
-      <span style="color:#ea580c;">⬤</span> M5–5.9 (Moderado)<br>
-      <span style="color:#d97706;">⬤</span> M4–4.9 (Leve)<br>
-      <span style="color:#22c55e;">★</span> Puerto Williams<br>
-      <span style="color:#3b82f6;">⌂</span> Demais cidades<br>
-      <span style="color:#8b5cf6;">⬤</span> Capitais
-    </div>"""
-    m.get_root().html.add_child(folium.Element(legend_html))
+col1, col2 = st.columns([2, 1])
 
-    folium.LayerControl(collapsed=False).add_to(m)
-    st_folium(m, width="100%", height=580)
+with col1:
+    st.markdown("""
+    A sismicidade patagônica resulta da interação de **4 placas tectônicas**:
+    
+    1. **Placa de Nazca** → Subducção sob a Sul-Americana a ~70 mm/ano (Andes, costa Pacífico)
+    2. **Placa Antártica** → Colisão ao sul (Drake Passage, Patagônia austral)
+    3. **Placa Scotia** → Falha transformante (Tierra del Fuego, Canal de Beagle)
+    4. **Falha Magallanes-Fagnano** → Corta Tierra del Fuego de leste a oeste
+    
+    ### ⚠️ Implicações para Puerto Williams
+    
+    Puerto Williams está localizada diretamente sobre o **sistema de falhas Scotia / Magallanes-Fagnano** — 
+    o que explica a intensidade vivenciada durante o evento M7.4 de 02/05/2025.
+    
+    ### 📊 Escala de Richter vs Efeitos Observados
+    
+    | Magnitude | Efeitos Típicos | Observado em Puerto Williams |
+    |-----------|----------------|------------------------------|
+    | M < 4.5 | Geralmente não sentido | - |
+    | M 4.5-5.5 | Perceptível, raramente danos | Ocorrências comuns na região |
+    | M 5.5-6.5 | Danos leves a moderados | Réplicas do evento principal |
+    | M 6.5-7.5 | Danos significativos em áreas vulneráveis | **M7.4 - Forte, tsunami alerta** |
+    | M > 7.5 | Danos catastróficos em grande área | - |
+    """)
+    
+with col2:
+    st.markdown("""
+    <div class="info-card">
+        <h4>🔍 Fontes de Dados</h4>
+        • <b>USGS Earthquake API</b><br>
+        Catálogo sísmico em tempo real<br><br>
+        • <b>CSN Chile</b><br>
+        Rede sismográfica nacional<br><br>
+        • <b>INPRES Argentina</b><br>
+        Catálogo sísmico argentino<br><br>
+        • <b>The Watchers</b><br>
+        Relatório detalhado M7.4<br><br>
+        • <b>VolcanoDiscovery</b><br>
+        Estatísticas por cidade<br><br>
+        • <b>SENAPRED Chile</b><br>
+        Alertas e evacuações
+    </div>
+    """, unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════
-# TAB 2 — TIMELINE
-# ══════════════════════════════════════════════
-with tab_timeline:
-    st.markdown('<div class="section-title">Timeline de Eventos Sísmicos</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Cronologia dos principais terremotos registrados na Patagônia entre 2024 e 2026.</div>', unsafe_allow_html=True)
+st.markdown("---")
 
-    # Gráfico de bolhas temporal
-    df_t = df_filtered.copy()
-    df_t["color"] = df_t["mag"].apply(mag_color)
-    df_t["size"] = df_t["mag"].apply(lambda m: max(8, int((m - 3) ** 2.5)))
-    df_t["label"] = df_t.apply(lambda r: f"M{r['mag']:.1f}" if r["mag"] >= 6.0 else "", axis=1)
+# Timeline de eventos notáveis
+st.markdown('<div class="sub-header">📅 TIMELINE — EVENTOS NOTÁVEIS (2024-2026)</div>', unsafe_allow_html=True)
 
-    fig_time = go.Figure()
-
-    # Fundo por ano
-    for y, color in [(2024, "rgba(241,245,249,0.4)"), (2025, "rgba(254,243,199,0.3)"), (2026, "rgba(240,253,244,0.4)")]:
-        fig_time.add_vrect(
-            x0=f"{y}-01-01", x1=f"{y}-12-31",
-            fillcolor=color, line_width=0,
-            annotation_text=str(y), annotation_position="top left",
-            annotation_font_color="#94a3b8",
-        )
-
-    # Linha de referência M7
-    fig_time.add_hline(y=7.0, line_dash="dot", line_color="#dc2626",
-                       annotation_text="M7.0", annotation_position="right")
-
-    # Todos eventos
-    fig_time.add_trace(go.Scatter(
-        x=df_t[df_t["mag"] < 7.0]["date"],
-        y=df_t[df_t["mag"] < 7.0]["mag"],
-        mode="markers",
+if not df.empty:
+    # Selecionar os 10 maiores eventos
+    top_events = df.nlargest(10, 'magnitude').sort_values('time')
+    
+    # Criar timeline visual com plotly
+    fig_timeline = go.Figure()
+    
+    fig_timeline.add_trace(go.Scatter(
+        x=top_events['time'],
+        y=top_events['magnitude'],
+        mode='markers+text',
         marker=dict(
-            color=[mag_color(m) for m in df_t[df_t["mag"] < 7.0]["mag"]],
-            size=[max(8, int((m-3)**2.2)) for m in df_t[df_t["mag"] < 7.0]["mag"]],
-            opacity=0.75,
-            line=dict(width=1, color="white"),
+            size=top_events['magnitude'] * 3,
+            color=top_events['magnitude'],
+            colorscale='Viridis',
+            showscale=True,
+            colorbar=dict(title="Magnitude")
         ),
-        name="Eventos",
-        hovertemplate="<b>%{x|%d/%m/%Y}</b><br>M%{y:.1f}<br>%{text}<extra></extra>",
-        text=df_t[df_t["mag"] < 7.0]["place"],
+        text=top_events['magnitude'].round(1),
+        textposition="top center",
+        textfont=dict(size=10),
+        name='Eventos',
+        hovertemplate='<b>Data:</b> %{x|%d/%m/%Y}<br>' +
+                      '<b>Magnitude:</b> M%{text}<br>' +
+                      '<b>Profundidade:</b> %{customdata:.1f} km<br>' +
+                      '<extra></extra>',
+        customdata=top_events['depth']
     ))
-
-    # Evento principal
-    main_row = df_t[df_t["mag"] >= 7.0]
-    if not main_row.empty:
-        fig_time.add_trace(go.Scatter(
-            x=main_row["date"], y=main_row["mag"],
-            mode="markers+text",
-            marker=dict(color="#7f1d1d", size=30, symbol="star",
-                        line=dict(width=3, color="#fca5a5")),
-            text=["🚨 M7.4 — 02/05/2025"],
-            textposition="top center",
-            textfont=dict(color="#dc2626", size=12, family="Inter"),
-            name="Evento Principal",
-            hovertemplate="<b>M7.4 — 02/05/2025</b><br>Passagem de Drake<br>Puerto Williams (Amauri)<extra></extra>",
-        ))
-
-    fig_time.update_layout(
-        xaxis_title="Data", yaxis_title="Magnitude",
-        plot_bgcolor="white", paper_bgcolor="white",
-        font=dict(family="Inter"), height=450,
-        margin=dict(l=20, r=80, t=40, b=20),
-        yaxis=dict(gridcolor="#f1f5f9", range=[4.0, 8.0]),
-        xaxis=dict(gridcolor="#f1f5f9"),
-        showlegend=True,
-        legend=dict(orientation="h", y=1.08, x=0),
+    
+    # Destacar evento principal
+    main_event = top_events[top_events['magnitude'] == top_events['magnitude'].max()]
+    fig_timeline.add_trace(go.Scatter(
+        x=main_event['time'],
+        y=main_event['magnitude'],
+        mode='markers',
+        marker=dict(size=25, color='red', symbol='star'),
+        name='⭐ Evento Principal M7.4',
+        hovertemplate='<b>⭐ EVENTO PRINCIPAL</b><br>' +
+                      'Data: 02/05/2025<br>' +
+                      'Magnitude: M7.4<br>' +
+                      '<extra></extra>'
+    ))
+    
+    fig_timeline.update_layout(
+        title="Top 10 Maiores Eventos Sísmicos (2024-2026)",
+        xaxis_title="Data",
+        yaxis_title="Magnitude",
+        height=400,
+        hovermode='closest'
     )
-    st.plotly_chart(fig_time, use_container_width=True)
-
-    # Timeline textual dos eventos notáveis
-    st.markdown('<div class="section-title">Eventos Notáveis</div>', unsafe_allow_html=True)
-
-    notable = [
-        {"date": "Dez 2024", "mag": 6.1, "color": "#dc2626",
-         "title": "M6.1 — Sul de Tierra del Fuego",
-         "desc": "Sentido em Puerto Williams, Ushuaia e Rio Grande. Profundidade de 10 km. Evento que antecipou a sequência de maior atividade em 2025."},
-        {"date": "02 Mai 2025", "mag": 7.4, "color": "#7f1d1d",
-         "title": "🚨 M7.4 — Passagem de Drake (EVENTO PRINCIPAL)",
-         "desc": f"O maior sismo da região em décadas. {MAIN_EVENT['evacuated']:,} pessoas evacuadas, alerta de tsunami emitido pelo NOAA. Sirenes soaram em Puerto Williams, onde o pesquisador Amauri Almeida residia. 50+ réplicas, a maior de M6.4."},
-        {"date": "02 Mai 2025", "mag": 6.4, "color": "#ea580c",
-         "title": "M6.4 — Réplica principal (Drake Passage)",
-         "desc": "Maior réplica do evento de M7.4, ocorrida cerca de 4 horas após o abalo principal. Não gerou novos alertas de tsunami mas foi sentida em Puerto Williams e Ushuaia."},
-        {"date": "Nov 2025", "mag": 5.4, "color": "#d97706",
-         "title": "M5.4 — Magalhães offshore",
-         "desc": "Sentido em Puerto Natales e Punta Arenas. Profundidade de 12 km. Parte da sequência sísmica de reativação da região após o evento de maio/2025."},
-        {"date": "Jan 2026", "mag": 5.0, "color": "#d97706",
-         "title": "M5.0 — Sul de Tierra del Fuego",
-         "desc": "Sentido em Puerto Williams e Ushuaia. Confirmou a persistência de atividade sísmica elevada na zona do Drake mesmo meses após o evento principal."},
-    ]
-
-    for ev in notable:
+    
+    st.plotly_chart(fig_timeline, use_container_width=True)
+    
+    # Lista textual dos eventos
+    st.markdown("#### 📋 Lista dos Maiores Eventos")
+    for idx, event in top_events.iterrows():
         st.markdown(f"""
-        <div class="timeline-item">
-            <div class="timeline-dot" style="background:{ev['color']};">M{ev['mag']}</div>
-            <div class="timeline-content">
-                <div class="te">{ev['date']}</div>
-                <div class="tm">{ev['title']}</div>
-                <div class="td">{ev['desc']}</div>
-            </div>
-        </div>""", unsafe_allow_html=True)
+        • **{event['time'].strftime('%d/%m/%Y')}** — M{event['magnitude']:.1f} 
+        (Profundidade: {event['depth']:.1f} km) — {event.get('place', 'Região da Patagônia')}
+        """)
 
-# ══════════════════════════════════════════════
-# TAB 3 — ESTATÍSTICAS
-# ══════════════════════════════════════════════
-with tab_stats:
-    st.markdown('<div class="section-title">Distribuição por Magnitude</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Frequência dos eventos por faixa de magnitude. A escala de Gutenberg-Richter prevê ~10× mais eventos para cada ponto reduzido de magnitude.</div>', unsafe_allow_html=True)
+st.markdown("---")
 
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        bins = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5]
-        labels = ["4.0–4.5", "4.5–5.0", "5.0–5.5", "5.5–6.0", "6.0–6.5", "6.5–7.0", "7.0+"]
-        counts = []
-        for i in range(len(bins)-1):
-            counts.append(len(df_events[(df_events["mag"] >= bins[i]) & (df_events["mag"] < bins[i+1])]))
-        bar_colors = ["#d97706", "#ea580c", "#ea580c", "#dc2626", "#dc2626", "#991b1b", "#7f1d1d"]
-
-        fig_hist = go.Figure(go.Bar(
-            x=labels, y=counts,
-            marker_color=bar_colors,
-            text=counts, textposition="outside",
-        ))
-        fig_hist.update_layout(
-            title="Frequência por Magnitude",
-            xaxis_title="Faixa de Magnitude",
-            yaxis_title="Nº de Eventos",
-            plot_bgcolor="white", paper_bgcolor="white",
-            font=dict(family="Inter"), height=380,
-            margin=dict(l=20, r=20, t=50, b=20),
-            yaxis=dict(gridcolor="#f1f5f9"),
-        )
-        st.plotly_chart(fig_hist, use_container_width=True)
-
-    with col_b:
-        # Profundidade
-        fig_depth = go.Figure(go.Scatter(
-            x=df_events["depth"], y=df_events["mag"],
-            mode="markers",
-            marker=dict(
-                color=[mag_color(m) for m in df_events["mag"]],
-                size=[max(6, int((m-3)**2)) for m in df_events["mag"]],
-                opacity=0.75, line=dict(width=1, color="white"),
-            ),
-            hovertemplate="Profundidade: %{x} km<br>Magnitude: %{y}<extra></extra>",
-        ))
-        fig_depth.update_layout(
-            title="Magnitude × Profundidade (km)",
-            xaxis_title="Profundidade (km)",
-            yaxis_title="Magnitude",
-            plot_bgcolor="white", paper_bgcolor="white",
-            font=dict(family="Inter"), height=380,
-            margin=dict(l=20, r=20, t=50, b=20),
-            xaxis=dict(gridcolor="#f1f5f9"),
-            yaxis=dict(gridcolor="#f1f5f9"),
-        )
-        st.plotly_chart(fig_depth, use_container_width=True)
-
-    # Eventos por mês
-    st.markdown('<div class="section-title">Eventos por Mês (2024–2026)</div>', unsafe_allow_html=True)
-    monthly = df_events.groupby(["year", "month"]).size().reset_index(name="count")
-    monthly["period"] = monthly.apply(lambda r: f"{r['year']}-{str(r['month']).zfill(2)}", axis=1)
-
-    fig_monthly = go.Figure(go.Bar(
-        x=monthly["period"], y=monthly["count"],
-        marker_color=["#7f1d1d" if "2025-05" in p else "#ea580c" if "2025" in p
-                      else "#3b82f6" if "2024" in p else "#22c55e" for p in monthly["period"]],
-        text=monthly["count"], textposition="outside",
-    ))
-    fig_monthly.add_vline(x="2025-05", line_dash="dash", line_color="#dc2626",
-                          annotation_text="02/05/2025 M7.4", annotation_position="top right",
-                          annotation_font_color="#dc2626")
-    fig_monthly.update_layout(
-        xaxis_title="Mês", yaxis_title="Nº de Eventos",
-        plot_bgcolor="white", paper_bgcolor="white",
-        font=dict(family="Inter"), height=340,
-        margin=dict(l=20, r=20, t=20, b=20),
-        yaxis=dict(gridcolor="#f1f5f9"),
-        xaxis=dict(tickangle=45),
-    )
-    st.plotly_chart(fig_monthly, use_container_width=True)
-
-    # Comparativo capitais vs Patagônia
-    st.markdown('<div class="section-title">Comparativo: Capitais vs Patagônia</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Frequência anual de sismos por região. Mostra a diferença entre a atividade sísmica patagônica e das capitais.</div>', unsafe_allow_html=True)
-
-    comp_data = {
-        "Região": ["Patagônia (geral)", "Tierra del Fuego / Drake", "Santiago (Chile)", "Buenos Aires (Argentina)"],
-        "Sismos M3+/ano": [180, 45, 60, 0.93],
-        "Sismos M5+/ano": [8, 4, 7.7, 0.08],
-        "Maior M recente": [7.4, 7.4, 6.7, 5.0],
-        "Risco": ["Muito Alto", "Muito Alto", "Alto", "Baixo"],
-    }
-    df_comp = pd.DataFrame(comp_data)
-
-    fig_comp = make_subplots(rows=1, cols=2, subplot_titles=["Sismos M5+/ano", "Maior Magnitude Recente"])
-    colors_c = ["#7f1d1d", "#dc2626", "#f59e0b", "#22c55e"]
-
-    fig_comp.add_trace(go.Bar(x=df_comp["Região"], y=df_comp["Sismos M5+/ano"],
-                               marker_color=colors_c, showlegend=False,
-                               text=df_comp["Sismos M5+/ano"], textposition="outside"),
-                       row=1, col=1)
-    fig_comp.add_trace(go.Bar(x=df_comp["Região"], y=df_comp["Maior M recente"],
-                               marker_color=colors_c, showlegend=False,
-                               text=df_comp["Maior M recente"], textposition="outside"),
-                       row=1, col=2)
-    fig_comp.update_layout(
-        plot_bgcolor="white", paper_bgcolor="white",
-        font=dict(family="Inter"), height=360,
-        margin=dict(l=20, r=20, t=50, b=60),
-        yaxis=dict(gridcolor="#f1f5f9"),
-        yaxis2=dict(gridcolor="#f1f5f9", range=[0, 8]),
-        xaxis=dict(tickangle=20), xaxis2=dict(tickangle=20),
-    )
-    st.plotly_chart(fig_comp, use_container_width=True)
-
-# ══════════════════════════════════════════════
-# TAB 4 — CIDADES & IMPACTOS
-# ══════════════════════════════════════════════
-with tab_cities:
-    st.markdown('<div class="section-title">Cidades da Patagônia — Risco Sísmico</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Cidades vivenciadas pelo pesquisador e outras localidades patagônicas com histórico de atividade sísmica.</div>', unsafe_allow_html=True)
-
-    st.markdown("#### 🌟 Cidades vivenciadas pelo pesquisador")
-    visited = ["Puerto Williams", "Punta Arenas", "Puerto Natales", "Ushuaia", "Rio Gallegos", "Rio Grande", "Rio Verde"]
-
-    for city in visited:
-        if city in PATAGONIA_CITIES:
-            info = PATAGONIA_CITIES[city]
-            highlight = "border: 2px solid #fca5a5; background: #fff5f5;" if city == "Puerto Williams" else ""
-            star = "⭐ " if city == "Puerto Williams" else ""
-            st.markdown(f"""
-            <div class="city-card" style="{highlight}">
-                <div class="cname">{info['flag']} {star}{city} · {info['country'].replace(' 🇨🇱','').replace(' 🇦🇷','')}</div>
-                <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:0.5rem;">
-                    <span style="font-size:0.78rem; background:#f1f5f9; padding:2px 8px; border-radius:4px;">👥 {info['pop']:,} hab.</span>
-                    <span style="font-size:0.78rem; background:#fef2f2; color:#dc2626; padding:2px 8px; border-radius:4px;">⚡ Risco: {info['seismic_risk']}</span>
-                    <span style="font-size:0.78rem; background:#fff7ed; color:#c2410c; padding:2px 8px; border-radius:4px;">📊 MMI 02/05/25: {info['mmi_may2025']}</span>
-                </div>
-                <div class="cdesc">{info['desc']}</div>
-            </div>""", unsafe_allow_html=True)
-
-    st.divider()
-    st.markdown("#### 🏙️ Capitais — Comparativo")
-
-    col_s, col_b = st.columns(2)
-    for col, (cap, info) in zip([col_s, col_b], CAPITALS.items()):
-        with col:
-            st.markdown(f"""
-            <div class="city-card" style="border-left: 4px solid {info['risk_color']};">
-                <div class="cname">{info['flag']} {cap}</div>
-                <div style="display:flex; gap:0.7rem; flex-wrap:wrap; margin-top:0.5rem;">
-                    <span style="font-size:0.78rem; background:#f1f5f9; padding:2px 8px; border-radius:4px;">👥 {info['pop']:,} hab.</span>
-                    <span style="font-size:0.78rem; background:#f1f5f9; padding:2px 8px; border-radius:4px;">📈 {info['quakes_per_year']} sismos/ano</span>
-                    <span style="font-size:0.78rem; padding:2px 8px; border-radius:4px; background:{info['risk_color']}22; color:{info['risk_color']};">Risco {info['seismic_risk']}</span>
-                </div>
-                <div class="cdesc">{info['desc']}</div>
-            </div>""", unsafe_allow_html=True)
-
-    # Gauge de risco relativo
-    st.markdown('<div class="section-title">Índice de Risco Sísmico Relativo</div>', unsafe_allow_html=True)
-    risk_cities = ["Puerto Williams", "Punta Arenas", "Ushuaia", "Rio Grande", "Rio Gallegos", "Puerto Natales", "Santiago", "Buenos Aires"]
-    risk_scores = [95, 80, 88, 82, 65, 72, 78, 20]
-    risk_colors = [mag_color(7.5), mag_color(6.5), mag_color(7.0), mag_color(6.8),
-                   mag_color(6.0), mag_color(5.8), mag_color(5.9), "#22c55e"]
-
-    fig_risk = go.Figure(go.Bar(
-        x=risk_scores, y=risk_cities,
-        orientation="h",
-        marker_color=risk_colors,
-        text=[f"{s}/100" for s in risk_scores],
-        textposition="outside",
-    ))
-    fig_risk.update_layout(
-        xaxis_title="Índice de Risco (0–100)", xaxis=dict(range=[0, 115]),
-        plot_bgcolor="white", paper_bgcolor="white",
-        font=dict(family="Inter"), height=380,
-        margin=dict(l=20, r=60, t=20, b=20),
-        yaxis=dict(gridcolor="#f1f5f9"),
-        xaxis_gridcolor="#f1f5f9",
-    )
-    st.plotly_chart(fig_risk, use_container_width=True)
-
-# ══════════════════════════════════════════════
-# TAB 5 — CONTEXTO GEOLÓGICO
-# ══════════════════════════════════════════════
-with tab_context:
-    st.markdown('<div class="section-title">Contexto Geológico e Sismológico</div>', unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="curiosity-box">
-    🌋 <strong>Por que a Patagônia treme tanto?</strong><br>
-    A região é o encontro de quatro placas tectônicas: a <strong>Placa de Nazca</strong> subduce sob a <strong>Placa Sul-Americana</strong> 
-    ao longo da costa do Pacífico a ~70–80 mm/ano. Ao sul, a <strong>Placa Antártica</strong> colide pela 
-    <strong>Zona de Falha Scotia</strong>. Essa tripla confluência faz da Patagônia austral uma das regiões 
-    mais sismicamente ativas do planeta.
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="curiosity-box">
-    🌊 <strong>A Passagem de Drake — O Epicentro do M7.4</strong><br>
-    A Passagem de Drake, entre o Cabo Horn e a Península Antártica, é mais do que os mares mais 
-    bravios do mundo. É também uma zona de fratura oceânica ativa, onde a Placa Scotia faz contato 
-    com a Placa Sul-Americana. O sismo de <strong>02/05/2025</strong> ocorreu exatamente nessa fronteira, 
-    a apenas 10 km de profundidade — raso o suficiente para gerar ondas de tsunami detectáveis.
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="curiosity-box">
-    📡 <strong>Santiago — Alta Sismicidade, Alto Preparo</strong><br>
-    Com ~174 sismos detectáveis por ano, Santiago é uma das capitais mais sísmicas do mundo. 
-    Porém, o Chile investiu décadas em código de construção antissísmica, tornando-se referência global. 
-    O terremoto de <strong>M9.5 de 1960 (Valdivia)</strong> — o maior já registrado na Terra — impulsionou 
-    essas mudanças. Hoje, um M5.0 em Santiago raramente causa danos estruturais.
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="info-box">
-    📊 <strong>Buenos Aires — Por que tão quieta?</strong><br>
-    Buenos Aires fica sobre o <em>Cráton Platense</em>, uma das formações rochosas mais antigas e 
-    estáveis da América do Sul. Distante das zonas de subducção andinas, registra apenas ~1 sismo 
-    detectável por ano, e M5+ acontece em média <strong>1 vez a cada 13 anos</strong>. O contraste 
-    com a Patagônia (centenas de eventos por ano) é geológico: quanto mais ao sul, mais próximo da 
-    zona de colisão das placas.
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="curiosity-box">
-    🏔️ <strong>Canal de Beagle e Tierra del Fuego — Zona de Risco Máximo</strong><br>
-    O Canal de Beagle e a Ilha da Tierra del Fuego ficam no ponto onde a falha de <em>Magallanes-Fagnano</em> 
-    corta a ilha de leste a oeste. Essa falha transformante — similar à Falha de San Andreas na Califórnia — 
-    é responsável por sismos frequentes entre M4.0 e M6.0 na região. Puerto Williams fica diretamente 
-    sobre esse sistema de falhas.
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Tabela de placas
-    st.markdown('<div class="section-title">Interação de Placas Tectônicas</div>', unsafe_allow_html=True)
-    plates_data = {
-        "Placas": ["Nazca → Sul-Americana", "Antártica → Sul-Americana", "Scotia (transformante)", "Placa Patagônica (micro)"],
-        "Tipo": ["Convergente (subducção)", "Convergente", "Transformante", "Internas"],
-        "Taxa (mm/ano)": [70, 20, 8, "variável"],
-        "Impacto": ["Andes, Trench Peru-Chile", "Patagônia Sul, Drake", "Tierra del Fuego", "Magalhães-Fagnano"],
-        "Risco Principal": ["M8+ na costa", "M7–8 offshore", "M6–7 Beagle", "M5–6 localizado"],
-    }
-    st.dataframe(pd.DataFrame(plates_data), use_container_width=True, hide_index=True)
-
-    # Escala Richter vs MMI
-    st.markdown('<div class="section-title">Escala de Magnitude × Impacto Esperado</div>', unsafe_allow_html=True)
-
-    mmi_data = {
-        "Magnitude": ["M2–3", "M3–4", "M4–5", "M5–6", "M6–7", "M7–8", "M8+"],
-        "Classificação": ["Micro", "Menor", "Leve", "Moderado", "Forte", "Maior", "Grande"],
-        "Efeito típico": [
-            "Não sentido",
-            "Sentido por poucos em repouso",
-            "Sentido por muitos, vidros vibram",
-            "Danos leves, alarmes disparam",
-            "Danos moderados, difícil ficar em pé",
-            "Danos sérios, tsunamis possíveis",
-            "Destruição em grande escala",
-        ],
-        "Frequência global/ano": ["~900.000", "~130.000", "~13.000", "~1.300", "~130", "~15", "~1"],
-        "Na Patagônia/ano": ["Centenas", "~50", "~20", "~8", "~2", "~0.3", "Raro"],
-    }
-    st.dataframe(pd.DataFrame(mmi_data), use_container_width=True, hide_index=True)
-
-# ─────────────────────────────────────────────
-# FOOTER
-# ─────────────────────────────────────────────
-st.divider()
+# Footer
 st.markdown("""
-<div class="source-box">
-<b>📚 Fontes de Dados e Referências</b><br><br>
-• <b>USGS Earthquake Catalog API</b> — earthquake.usgs.gov/fdsnws/event/1/ · GeoJSON REST API gratuita<br>
-• <b>The Watchers</b> — "Powerful M7.4 earthquake hits near the coast of Argentina" · watchers.news, 02/05/2025<br>
-• <b>Fox Weather</b> — "Massive offshore quake in rough seas of Drake Passage triggers tsunami alerts" · foxweather.com<br>
-• <b>CBS News</b> — "7.4 magnitude earthquake strikes off coast of Chile and Argentina" · cbsnews.com, 03/05/2025<br>
-• <b>Newsweek</b> — "Tsunami Warning Issued for Chile After Huge Earthquake Off Argentina" · newsweek.com<br>
-• <b>VolcanoDiscovery</b> — Earthquake statistics for Santiago, Buenos Aires, Argentina, Chile · volcanodiscovery.com<br>
-• <b>CSN — Centro Sismológico Nacional do Chile</b> — sismologia.cl<br>
-• <b>INPRES</b> — Instituto Nacional de Prevención Sísmica, Argentina · inpres.gob.ar<br>
-• <b>SENAPRED Chile</b> — alertas e evacuações de 02/05/2025 · senapred.cl<br>
-• <b>VolcanoDiscovery</b> — M7.4 Drake Passage earthquake details · volcanodiscovery.com<br>
-<br>
-<b>Relato de campo:</b> Amauri Almeida, Puerto Williams, Chile — 02 de maio de 2025<br>
-<b>Elaboração:</b> Portfólio de Pesquisa Ambiental &nbsp;·&nbsp;
-<a href="https://amaurialmeida.github.io/environmental-portfolio/" target="_blank">🌐 amaurialmeida.github.io</a> &nbsp;·&nbsp;
-<a href="https://github.com/amaurialmeida" target="_blank">GitHub</a>
+<div class="footer">
+    <p>🔬 Projeto 006 — Sismologia da Patagônia | Chile & Argentina</p>
+    <p>📊 Dados: USGS Earthquake API | Última atualização: Maio 2026</p>
+    <p>🌍 Desenvolvido por Amauri Almeida | Pesquisa de campo em Puerto Williams (2025)</p>
+    <p style="font-size: 0.8rem;">⚠️ Este é um projeto científico-educacional. Em caso de emergência sísmica, 
+    siga as orientações da defesa civil local.</p>
 </div>
 """, unsafe_allow_html=True)
