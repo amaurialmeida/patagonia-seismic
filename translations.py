@@ -1,5 +1,3 @@
-"""Textos do projeto Patagonia Seismic em 10 idiomas."""
-
 TRANSLATIONS = {
     "pt": {
         "page_title": "Sismologia · Patagônia",
